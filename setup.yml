@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: 'Static website hosting to learn CloudFront'
+
+Parameters: 
+  DefaultRootObject:
+    Description: 'Default path for the index document.'
+    Type: String
+    Default: 'index.html'
+  ErrorPagePath:
+    Description: 'Path of the error page for the website.'
+    Type: String
+    Default: '/404.html'
+
+Resources: 
+  homewallprob:
+    Type: AWS::S3::Bucket
+
+  ReadPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref homewallprob
+      PolicyDocument:
+        Statement:
+        - Action: 's3:GetObject'
+          Effect: Allow
+          Resource: !Sub 'arn:aws:s3:::${homewallprob}/*'
+          Principal:
+            CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
+  CloudFrontOriginAccessIdentity:
+    Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Ref homewallprob
+  CloudFrontDistribution:
+    Type: 'AWS::CloudFront::Distribution'
+    Properties:
+      DistributionConfig:
+        CustomErrorResponses:
+        - ErrorCode: 403
+          ResponseCode: 404
+          ResponsePagePath: !Ref ErrorPagePath
+        DefaultCacheBehavior:
+          AllowedMethods:
+          - GET 
+          - HEAD
+          - OPTIONS
+          CachedMethods:
+          - GET 
+          - HEAD
+          - OPTIONS
+          Compress: true
+          DefaultTTL: 3600
+          ForwardedValues:
+            Cookies:
+              Forward: none
+            QueryString: false 
+          MaxTTL: 86400
+          MinTTL: 60
+          TargetOriginId: s3origin
+          ViewerProtocolPolicy: 'allow-all'
+        DefaultRootObject: !Ref DefaultRootObject
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+        - DomainName: !GetAtt 'homewallprob.DomainName'
+          Id: s3origin
+          S3OriginConfig:
+            OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+        PriceClass: 'PriceClass_All'
+
+#IAM User
+      
+  PublishUser:
+    Type: 'AWS::IAM::User'
+    Properties:
+      Policies:
+        - PolicyName: !Sub 'publish-to-${homewallprob}'
+          PolicyDocument:
+            Statement:
+            - Action: 's3:*'
+              Effect: Allow
+              Resource: 
+              - !Sub 'arn:aws:s3:::${homewallprob}'
+              - !Sub 'arn:aws:s3:::${homewallprob}/*'
+  PublishCredentials:
+    Type: 'AWS::IAM::AccessKey'
+    Properties:
+      UserName: !Ref PublishUser
+
+Outputs:
+  BucketName:
+    Description: 'homewallprob'
+    Value: !Ref homewallprob
+  AccessKeyId:
+    Description: 'S3 Access Key'
+    Value: !Ref PublishCredentials
+  AccessKeySecret:
+    Description: 'S3 Secret Key'
+    Value: !GetAtt PublishCredentials.SecretAccessKey
+  DistributionId:
+    Description: 'CloudFront Distribution ID'
+    Value: !Ref CloudFrontDistribution
+  Domain:
+    Description: 'Cloudfront Domain'
+    Value: !GetAtt CloudFrontDistribution.DomainName
